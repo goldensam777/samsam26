@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BissiMamba - Implémentation C du Mamba State Space Model</title>
+    <link rel="stylesheet" href="../styles.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <main class="content">
+        <a href="../index.html" class="back-link">← Retour au Blog</a>
+
+        <div class="readme-container">
+            <header class="readme-header">
+                <div class="project-header">
+                    <img src="../images/bissi.ico" alt="BissiMamba Icon" class="project-icon">
+                    <div class="project-title">
+                        <h1>BissiMamba</h1>
+                        <p>Mamba State Space Model - C Implementation</p>
+                    </div>
+                </div>
+                <div class="project-actions">
+                    <a href="https://github.com/goldensam777/BissiMamba" target="_blank" class="btn-repo">
+                        <img src="../images/github-logo.png" alt="GitHub" class="github-icon">
+                        Aller au dépôt
+                    </a>
+                    <p class="copyright-notice">Icône GitHub © 2024 GitHub, Inc. Tous droits réservés.</p>
+                </div>
+                <p class="readme-subtitle">Implémentation complète en C du modèle Mamba State Space Model</p>
+            </header>
+
+            <section class="readme-section">
+                <h2>Vue d'ensemble</h2>
+                <p>Mamba est un récent progrès en modélisation de séquences qui combine l'efficacité des RNN avec la capacité de modélisation des Transformers. Il est basé sur les modèles d'espace d'état (SSMs) et présente :</p>
+
+                <ul>
+                    <li><strong>Opération de selective scan</strong> : Un algorithme parallèle qui adapte la dynamique basée sur l'entrée</li>
+                    <li><strong>Discrétisation</strong> : Convertit les SSMs continus en opérations temps discret</li>
+                    <li><strong>Efficacité mémoire</strong> : Mise à l'échelle linéaire avec la longueur de séquence (vs quadratique pour les Transformers)</li>
+                </ul>
+            </section>
+
+            <section class="readme-section">
+                <h2>Structure du Projet</h2>
+                <pre><code>BissiMamba/
+├── mamba.h           # Header file avec API publique et structures de données
+├── mamba.c           # Implémentation du cœur de l'algorithme Mamba
+├── main.c            # Programme exemple/test
+├── Makefile          # Configuration de build
+└── README.md         # Ce fichier</code></pre>
+            </section>
+
+            <section class="readme-section">
+                <h2>Composants Clés</h2>
+
+                <h3>Structures de Données</h3>
+
+                <div class="readme-grid">
+                    <div class="readme-card">
+                        <h4>Matrix</h4>
+                        <p>Représente une matrice 2D avec :</p>
+                        <ul>
+                            <li><code>data</code> : Tableau aplati (ordre ligne-majeur)</li>
+                            <li><code>rows</code>, <code>cols</code> : Dimensions</li>
+                        </ul>
+                    </div>
+
+                    <div class="readme-card">
+                        <h4>SSMParams</h4>
+                        <p>Paramètres du modèle d'espace d'état :</p>
+                        <ul>
+                            <li><code>A</code> : Matrice de transition d'état (N × N)</li>
+                            <li><code>B</code> : Matrice d'entrée (N × 1)</li>
+                            <li><code>C</code> : Matrice de sortie (1 × N)</li>
+                            <li><code>D</code> : Terme de feedthrough</li>
+                        </ul>
+                    </div>
+
+                    <div class="readme-card">
+                        <h4>MambaConfig</h4>
+                        <p>Configuration pour le bloc Mamba :</p>
+                        <ul>
+                            <li><code>dim</code> : Dimension du modèle</li>
+                            <li><code>state_size</code> : Dimension de l'espace d'état (N)</li>
+                            <li><code>seq_len</code> : Longueur de séquence</li>
+                            <li><code>dt_*</code> : Paramètres delta time</li>
+                        </ul>
+                    </div>
+
+                    <div class="readme-card">
+                        <h4>MambaBlock</h4>
+                        <p>État du bloc Mamba principal :</p>
+                        <ul>
+                            <li>Matrices de projection (W_in, W_out)</li>
+                            <li>Matrices SSM (A_log, B, C)</li>
+                            <li>Buffers temporaires et paramètres</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section class="readme-section">
+                <h2>Algorithmes du Cœur</h2>
+
+                <h3>1. Fondamentaux des State Space Models</h3>
+                <p>Un SSM continu est :</p>
+                <pre><code>ẋ(t) = A·x(t) + B·u(t)
+y(t) = C·x(t) + D·u(t)</code></pre>
+
+                <h3>2. Discrétisation</h3>
+                <p>Conversion vers temps discret avec pas de temps Δt :</p>
+                <pre><code>x[n] = Ā·x[n-1] + B̄·u[n]
+y[n] = C·x[n] + D·u[n]</code></pre>
+
+                <p>Où :</p>
+                <ul>
+                    <li><code>Ā = exp(Δt·A)</code></li>
+                    <li><code>B̄ = (Δt·A)^(-1)·(exp(Δt·A) - I)·B</code></li>
+                </ul>
+
+                <h3>3. Selective Scan</h3>
+                <p>L'opération Mamba principale :</p>
+                <ul>
+                    <li>Pour chaque timestep, adapter la dynamique d'état basée sur delta time (Δt)</li>
+                    <li>Appliquer transition d'état : <code>x[n] = Ā[n]·x[n-1] + B̄[n]·u[n]</code></li>
+                    <li>Calculer sortie : <code>y[n] = C·x[n] + D·u[n]</code></li>
+                </ul>
+
+                <p>Cela permet un comportement dépendant des données tout en maintenant l'efficacité computationnelle.</p>
+            </section>
+
+            <section class="readme-section">
+                <h2>API Fonctions</h2>
+
+                <h3>Opérations Matricielles</h3>
+                <pre><code>/* Créer et gérer les matrices */
+Matrix* matrix_create(size_t rows, size_t cols);
+void matrix_free(Matrix *m);
+void matrix_zero(Matrix *m);
+void matrix_copy(Matrix *dst, const Matrix *src);
+void matrix_print(const Matrix *m);</code></pre>
+
+                <h3>Opérations Vectorielles</h3>
+                <pre><code>/* Opérations vecteur-matrice et vecteur-vecteur */
+void matrix_vec_mult(real_t *out, const Matrix *m, const real_t *v);
+void vec_add(real_t *y, const real_t *x, size_t n);
+void vec_scale(real_t *v, real_t alpha, size_t n);</code></pre>
+
+                <h3>Fonctions d'Activation</h3>
+                <pre><code>real_t softplus(real_t x);  /* log(1 + exp(x)) */
+real_t sigmoid(real_t x);   /* 1 / (1 + exp(-x)) */
+real_t relu(real_t x);      /* max(x, 0) */</code></pre>
+
+                <h3>Bloc Mamba</h3>
+                <pre><code>/* Créer et gérer le bloc Mamba */
+MambaBlock* mamba_block_create(const MambaConfig *config);
+void mamba_block_free(MambaBlock *block);
+void mamba_block_init(MambaBlock *block);
+
+/* Passe forward */
+void mamba_forward(MambaBlock *block, real_t *output,
+                   const real_t *input, size_t batch_size);</code></pre>
+
+                <h3>Opérations SSM</h3>
+                <pre><code>/* Fonctions de discrétisation */
+void discretize_A(Matrix *A_bar, const Matrix *A, real_t dt);
+void discretize_B(real_t *B_bar, const Matrix *A, const real_t *B,
+                  real_t dt, size_t state_size);
+
+/* Selective scan du cœur */
+void selective_scan(real_t *output, real_t *state,
+                   const real_t *input, const real_t *delta,
+                   const Matrix *A_bar, const real_t *B_bar,
+                   const Matrix *C, real_t D,
+                   size_t seq_len, size_t state_size);
+
+/* Calcul delta time */
+void compute_delta(real_t *delta_out, const MambaBlock *block,
+                   const real_t *delta_in, size_t seq_len);</code></pre>
+            </section>
+
+            <section class="readme-section">
+                <h2>Compilation et Exécution</h2>
+
+                <h3>Prérequis</h3>
+                <ul>
+                    <li>GCC ou compilateur C compatible</li>
+                    <li>Bibliothèque C standard avec support math</li>
+                    <li>Make (pour le build)</li>
+                </ul>
+
+                <h3>Compilation</h3>
+                <pre><code># Build du projet
+make
+
+# Build et exécution
+make run
+
+# Nettoyer les artefacts de build
+make clean
+
+# Rebuild complet
+make rebuild</code></pre>
+
+                <h3>Compilation Manuelle</h3>
+                <pre><code>gcc -Wall -Wextra -O2 -std=c99 -lm mamba.c main.c -o mamba_demo
+./mamba_demo</code></pre>
+
+                <h3>Exemple d'Usage</h3>
+                <pre><code>#include "mamba.h"
+
+int main() {
+    /* Configuration du bloc Mamba */
+    MambaConfig config = {
+        .dim = 64,
+        .state_size = 16,
+        .seq_len = 10,
+        .dt_min = 0.001f,
+        .dt_max = 0.1f,
+        /* ... autres paramètres ... */
+    };
+
+    /* Créer bloc */
+    MambaBlock *mamba = mamba_block_create(&config);
+    mamba_block_init(mamba);
+
+    /* Préparer entrée (batch_size=1) */
+    real_t *input = malloc(1 * 10 * 64 * sizeof(real_t));
+    real_t *output = malloc(1 * 10 * 64 * sizeof(real_t));
+
+    /* Remplir input avec des données... */
+
+    /* Exécuter passe forward */
+    mamba_forward(mamba, output, input, 1);
+
+    /* Traiter output... */
+
+    /* Nettoyage */
+    free(input);
+    free(output);
+    mamba_block_free(mamba);
+
+    return 0;
+}</code></pre>
+            </section>
+
+            <section class="readme-section">
+                <h2>Notes d'Implémentation</h2>
+
+                <h3>Simplifications pour Usage Éducatif</h3>
+                <p>Cette implémentation est conçue pour être compréhensible et éducative. Les implémentations de production incluraient :</p>
+
+                <ul>
+                    <li><strong>Discrétisation optimisée</strong> : Approximations d'exponentielle matricielle plus sophistiquées (Padé, eigendecomposition)</li>
+                    <li><strong>Opérations batchées</strong> : Calculs vectorisés pour meilleure utilisation cache</li>
+                    <li><strong>Accélération GPU</strong> : Implémentations CUDA/HIP pour traitement parallèle</li>
+                    <li><strong>Précision mixte</strong> : FP16 pour efficacité tout en maintenant l'exactitude</li>
+                    <li><strong>Calcul de gradient</strong> : Rétropropagation pour entraînement</li>
+                    <li><strong>Fonctionnalités avancées</strong> : Modes convolution, mécanismes attention-like</li>
+                </ul>
+
+                <h3>Stabilité Numérique</h3>
+                <p>L'implémentation inclut plusieurs techniques de stabilisation :</p>
+
+                <ul>
+                    <li><strong>Softplus pour delta times</strong> : Assure des pas de temps positifs</li>
+                    <li><strong>Clamping</strong> : Delta times bornés à une plage valide</li>
+                    <li><strong>Logarithme matriciel pour A</strong> : Améliore la stabilité numérique</li>
+                    <li><strong>Gestion overflow/underflow</strong> : Dans softplus et sigmoid</li>
+                </ul>
+            </section>
+
+            <section class="readme-section">
+                <h2>Caractéristiques de Performance</h2>
+
+                <h3>Complexité Computationnelle</h3>
+                <ul>
+                    <li><strong>Passe forward</strong> : O(seq_len × dim × state_size)</li>
+                    <li><strong>Selective scan</strong> : O(seq_len × state_size) - parallélisable</li>
+                    <li><strong>Mémoire</strong> : O(dim + state_size × seq_len)</li>
+                </ul>
+
+                <h3>Avantages vs Transformers</h3>
+                <ul>
+                    <li><strong>Complexité temps linéaire</strong> dans longueur séquence (vs quadratique)</li>
+                    <li><strong>Mémoire constante</strong> pour inférence (vs linéaire en seq_len)</li>
+                    <li><strong>Nature récurrente</strong> permet streaming efficace</li>
+                </ul>
+            </section>
+
+            <section class="readme-section">
+                <h2>Références</h2>
+                <ul>
+                    <li>Gu, A., Goel, K., & Ré, C. (2023). "Mamba: Linear-Time Sequence Modeling with Selective State Spaces"</li>
+                    <li>Théorie organisée des espaces d'état et SSMs diagonaux pour calcul efficace</li>
+                </ul>
+            </section>
+
+            <section class="readme-section">
+                <h2>Améliorations Futures</h2>
+                <ul>
+                    <li>[ ] Multi-head Mamba (tracks d'espace d'état parallèles)</li>
+                    <li>[ ] Traitement bidirectionnel</li>
+                    <li>[ ] Entraînement avec rétropropagation</li>
+                    <li>[ ] Accélération GPU (CUDA)</li>
+                    <li>[ ] Benchmarking contre Transformers</li>
+                    <li>[ ] Intégration avec autres couches réseau</li>
+                    <li>[ ] Quantification pour déploiement mobile</li>
+                </ul>
+            </section>
+
+            <section class="readme-section">
+                <h2>License</h2>
+                <p>Cette implémentation est fournie à des fins éducatives.</p>
+
+                <h2>Contribution</h2>
+                <p>N'hésitez pas à étendre cette implémentation avec :</p>
+                <ul>
+                    <li>Fonctionnalités supplémentaires du papier Mamba original</li>
+                    <li>Optimisations de performance</li>
+                    <li>Implémentations GPU</li>
+                    <li>Infrastructure d'entraînement</li>
+                    <li>Outils de benchmarking</li>
+                </ul>
+
+                <h2>Contact</h2>
+                <p>Pour questions ou améliorations, créez une issue ou pull request.</p>
+            </section>
+        </div>
+    </main>
+</body>
+</html>
